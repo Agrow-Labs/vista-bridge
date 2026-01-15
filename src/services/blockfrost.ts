@@ -1,8 +1,11 @@
 // Blockfrost API service for Cardano blockchain data
-const BLOCKFROST_API_BASE = 'https://cardano-mainnet.blockfrost.io/api/v0';
+const BLOCKFROST_API_BASE = 'https://cardano-preprod.blockfrost.io/api/v0';
 
 // You'll need to get a project_id from https://blockfrost.io
 const PROJECT_ID = import.meta.env.VITE_BLOCKFROST_PROJECT_ID || '';
+
+// Standard ADA icon URL (Cardano official icon)
+export const ADA_ICON_URL = 'https://cryptologos.cc/logos/cardano-ada-logo.svg';
 
 export interface BlockfrostAsset {
   unit: string;
@@ -257,11 +260,11 @@ export const fetchAssetImages = async (walletAssets: any[]): Promise<any[]> => {
     const assetsWithImages = await Promise.all(
       walletAssets.map(async (asset) => {
         try {
-          // Skip Cardano (lovelace) as it doesn't have metadata
+          // Handle Cardano (lovelace) - use standard ADA icon
           if (asset.unit === 'lovelace') {
             return {
               ...asset,
-              image: '', // Cardano doesn't have an image
+              image: ADA_ICON_URL,
               symbol: 'ADA',
               icon: '₳',
               chain: 'cardano'
@@ -324,8 +327,8 @@ export const fetchAssetImages = async (walletAssets: any[]): Promise<any[]> => {
     // Return original assets with fallback data
     return walletAssets.map(asset => ({
       ...asset,
-      image: '',
-      symbol: asset.unit === 'lovelace' ? 'Cardano' : asset.unit.slice(0, 8),
+      image: asset.unit === 'lovelace' ? ADA_ICON_URL : '',
+      symbol: asset.unit === 'lovelace' ? 'ADA' : asset.unit.slice(0, 8),
       icon: asset.unit === 'lovelace' ? '₳' : '🪙',
       chain: 'cardano'
     }));

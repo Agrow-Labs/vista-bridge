@@ -3,6 +3,8 @@ import Panel from './Panel';
 import { useCryptoData, type CryptoAsset } from '../hooks/useCryptoData';
 import { useWalletContext } from '../contexts/WalletContext';
 import { formatNumberClean } from '../utils/formatNumber';
+import { ADA_ICON_URL } from '../services/blockfrost';
+import { Transaction, BrowserWallet } from '@meshsdk/core';
 
 
 
@@ -12,15 +14,17 @@ interface BridgeAssetsProps {
 
 const BridgeAssets: React.FC<BridgeAssetsProps> = ({ onFromChainChange }) => {
   const { cryptoAssets } = useCryptoData();
-  const { assets: walletAssets, isConnected, selectedAsset, setSelectedAsset } = useWalletContext();
+  const { assets: walletAssets, isConnected, selectedAsset, setSelectedAsset, walletName } = useWalletContext();
   const [selectedPercentage, setSelectedPercentage] = useState('25%');
   const [sendAmount, setSendAmount] = useState('');
   const [displayAmount, setDisplayAmount] = useState('');
-  const [receiveAmount] = useState('162030');
   const [fromCrypto, setFromCrypto] = useState<CryptoAsset | null>(null);
   const [toCrypto, setToCrypto] = useState<CryptoAsset | null>(null);
   const [selectedWalletAsset, setSelectedWalletAsset] = useState<any | null>(null);
-
+  const [address, setAddress] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [txError, setTxError] = useState<string | null>(null);
+  const [txSuccess, setTxSuccess] = useState(false);
   const percentageButtons = ['10%', '25%', '50%', '75%', 'MAX'];
 
   // Helper function to format number with commas
@@ -54,9 +58,10 @@ const BridgeAssets: React.FC<BridgeAssetsProps> = ({ onFromChainChange }) => {
 
   // Set initial crypto values when assets are loaded
   useEffect(() => {
-    if (cryptoAssets.length >= 2 && !fromCrypto && !toCrypto) {
+    if (cryptoAssets.length > 0 && !fromCrypto && !toCrypto) {
       setFromCrypto(cryptoAssets[0]);
-      setToCrypto(cryptoAssets[1]);
+      // If there's a second asset, use it, otherwise use the first one again
+      setToCrypto(cryptoAssets.length >= 2 ? cryptoAssets[1] : cryptoAssets[0]);
     }
   }, [cryptoAssets, fromCrypto, toCrypto]);
 
@@ -83,9 +88,19 @@ const BridgeAssets: React.FC<BridgeAssetsProps> = ({ onFromChainChange }) => {
 
   // Helper function to render crypto icon with fallback
   const renderCryptoIcon = (crypto: CryptoAsset | null, size: string = 'w-6 h-6') => {
-    if (!crypto) return null;
+    if (!crypto) {
+      // Return a placeholder if no crypto is selected
+      return (
+        <div className={`${size} flex items-center justify-center text-lg text-gray-400`}>
+          🪙
+        </div>
+      );
+    }
 
-    const iconUrl = crypto.image;
+    // Use ADA_ICON_URL for ADA assets, fallback to crypto.image or ADA_ICON_URL
+    const iconUrl = crypto.symbol === 'ADA' 
+      ? ADA_ICON_URL 
+      : (crypto.image || (crypto.symbol === 'ADA' ? ADA_ICON_URL : ''));
 
     if (iconUrl) {
       return (
@@ -103,7 +118,7 @@ const BridgeAssets: React.FC<BridgeAssetsProps> = ({ onFromChainChange }) => {
             }}
           />
           <div
-            className={`${size} items-center justify-center text-lg hidden`}
+            className={`${size} items-center justify-center text-lg`}
             style={{ display: 'none' }}
           >
             {crypto.icon}
@@ -158,6 +173,8 @@ const BridgeAssets: React.FC<BridgeAssetsProps> = ({ onFromChainChange }) => {
   // Helper function to get available cryptos for selection
   const getAvailableCryptos = (excludeCrypto: CryptoAsset | null) => {
     if (!excludeCrypto) return cryptoAssets;
+    // If there's only one asset, allow it to be selected (don't filter it out)
+    if (cryptoAssets.length === 1) return cryptoAssets;
     return cryptoAssets.filter(crypto => crypto.symbol !== excludeCrypto.symbol);
   };
 
@@ -190,6 +207,84 @@ const BridgeAssets: React.FC<BridgeAssetsProps> = ({ onFromChainChange }) => {
     if (fromCrypto && toCrypto) {
       setFromCrypto(toCrypto);
       setToCrypto(fromCrypto);
+    }
+  };
+
+  // Handle sending transaction
+  const handleSendTransaction = async () => {
+    if (!isConnected || !walletName) {
+      setTxError('Please connect your wallet first');
+      return;
+    }
+
+    if (!address || address.trim() === '') {
+      setTxError('Please enter a recipient address');
+      return;
+    }
+
+    if (!sendAmount || parseFloat(sendAmount) <= 0) {
+      setTxError('Please enter a valid amount');
+      return;
+    }
+
+    if (!selectedWalletAsset) {
+      setTxError('Please select an asset to send');
+      return;
+    }
+
+    try {
+      setIsSending(true);
+      setTxError(null);
+      setTxSuccess(false);
+
+      // Get wallet instance
+      const walletInstance = await BrowserWallet.enable(walletName);
+
+      const amount = parseFloat(sendAmount);
+      const isADA = selectedWalletAsset.unit === 'lovelace' || selectedWalletAsset.symbol === 'ADA';
+      
+      // Build transaction
+      const tx = new Transaction({ initiator: walletInstance });
+
+      if (isADA) {
+        // Send ADA (lovelace)
+        const lovelaceAmount = Math.floor(amount * 1000000); // Convert ADA to lovelace
+        tx.sendLovelace(address, lovelaceAmount.toString());
+      } else {
+        // Send native asset
+        const assetUnit = selectedWalletAsset.unit;
+        const quantity = Math.floor(amount * Math.pow(10, selectedWalletAsset.decimals || 0));
+        tx.sendAssets(
+          { address: address },
+          [
+            {
+              unit: assetUnit,
+              quantity: quantity.toString(),
+            },
+          ]
+        );
+      }
+
+      // Build, sign, and submit transaction
+      const unsignedTx = await tx.build();
+      const signedTx = await walletInstance.signTx(unsignedTx);
+      await walletInstance.submitTx(signedTx);
+
+      setTxSuccess(true);
+      // Reset form after successful transaction
+      setSendAmount('');
+      setDisplayAmount('');
+      setAddress('');
+      
+      // Refresh assets after transaction
+      setTimeout(() => {
+        window.location.reload(); // Simple refresh, could be improved with context refresh
+      }, 2000);
+    } catch (error: any) {
+      console.error('Transaction error:', error);
+      setTxError(error.message || 'Failed to send transaction. Please try again.');
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -303,7 +398,18 @@ const BridgeAssets: React.FC<BridgeAssetsProps> = ({ onFromChainChange }) => {
             </div>
           </div>
         </div>
-
+        <div className="w-full mt-6 flex items-center justify-between gap-4  bg-[#1c1c1c] p-4 rounded-lg">
+          <div>
+            <div className="text-[#A1A1A1]">Address</div>
+            <input
+              type="text"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              className="text-white bg-transparent border-none outline-none w-full min-w-[600px]"
+              placeholder="Enter address..."
+            />
+          </div>
+        </div>
         {/* Percentage Buttons */}
         <div className="mt-5 w-full  flex lg:justify-between  flex-wrap gap-2">
           {percentageButtons.map((percentage) => (
@@ -332,14 +438,38 @@ const BridgeAssets: React.FC<BridgeAssetsProps> = ({ onFromChainChange }) => {
         <div className="w-full flex items-center justify-between gap-4 px-3 my-[20px] border border-[#1c1c1c] p-3 rounded-full">
 
           <div className="font-bold text-[#A1A1A1] text-sm">Receive:</div>
-          <div>
-
-            <div className="receive-amount">{receiveAmount}</div>
-            <div className=" text-[#A1A1A1] text-sm">$0.0015664</div>
+          <div className="flex items-center gap-2">
+            <div className="receive-amount">{sendAmount}</div>
+            <div className="text-[#A1A1A1] text-sm">{renderCryptoIcon(selectedWalletAsset, 'w-[30px] h-[30px]')}</div>
           </div>
 
         </div>
 
+        {/* Transaction Status Messages */}
+        {txError && (
+          <div className="w-full p-3 bg-red-900/20 border border-red-500/50 rounded-lg text-red-400 text-sm">
+            {txError}
+          </div>
+        )}
+        {txSuccess && (
+          <div className="w-full p-3 bg-green-900/20 border border-green-500/50 rounded-lg text-green-400 text-sm">
+            Transaction sent successfully!
+          </div>
+        )}
+
+        {/* Send Transaction Button */}
+        <button
+          onClick={handleSendTransaction}
+          disabled={isSending || !isConnected || !address || !sendAmount || parseFloat(sendAmount) <= 0}
+          className={`w-full py-4 px-6 rounded-lg font-bold text-lg transition-all duration-200 ${
+            isSending || !isConnected || !address || !sendAmount || parseFloat(sendAmount) <= 0
+              ? 'bg-[#1c1c1c] text-[#666] cursor-not-allowed'
+              : 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer active:scale-95'
+          }`}
+        >
+          {isSending ? 'Sending Transaction...' : 'Send Transaction'}
+        </button>
+       
       </div>
 
     </Panel>

@@ -10,6 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@lucid-evolution/lucid": "^0.1.0",
+    "@lucid-evolution/wallet": "^0.1.72",
     "@meshsdk/core": "^1.7.20",
     "@meshsdk/react": "^1.7.20",
     "@tailwindcss/vite": "^4.1.13",

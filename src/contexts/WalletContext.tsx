@@ -77,8 +77,6 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
       const priceInfo = priceData.find(priceAsset => {
         const walletSymbol = walletAsset.symbol?.toLowerCase();
         const priceSymbol = priceAsset.symbol?.toLowerCase();
-        console.log(`Comparing symbols: wallet="${walletSymbol}" vs price="${priceSymbol}"`);
-        
         // Handle special cases for symbol matching
         if (walletSymbol === 'cardano' && priceSymbol === 'cardano') {
           return true;
@@ -96,9 +94,9 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
         priceChange24h: priceInfo?.priceChange24h,
         marketCap: priceInfo?.marketCap,
         volume24h: priceInfo?.volume24h,
-        // Use CoinGecko image for Cardano and Bitcoin if available
+        // Use Blockfrost image if available
         image: priceInfo?.image || walletAsset.image,
-        // Use CoinGecko icon for Cardano and Bitcoin if available
+        // Use Blockfrost icon if available
         icon: priceInfo?.icon || walletAsset.icon
       };
       
@@ -111,6 +109,16 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
     try {
       setIsLoadingAssets(true);
       const walletAssets = await walletInstance.getBalance();
+      
+      // Ensure walletAssets is an array
+      if (!Array.isArray(walletAssets)) {
+        console.error('getBalance() did not return an array:', walletAssets);
+        throw new Error('Invalid balance format from wallet');
+      }
+      
+      if (walletAssets.length === 0) {
+        console.warn('Wallet balance is empty');
+      }
       
       // Fetch asset images and metadata from Blockfrost
       const assetsWithImages = await fetchAssetImages(walletAssets);
@@ -127,6 +135,7 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
         saveAssetsToStorage(assetsWithPrices, walletAddress);
       }
     } catch (error) {
+      console.error('Error fetching assets:', error);
       setAssets(null);
     } finally {
       setIsLoadingAssets(false);
@@ -222,20 +231,73 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
   const connectWallet = async (walletName: string) => {
     try {
       setIsConnecting(true);
+      // Enable the wallet - this prompts the user to connect
       const walletInstance = await BrowserWallet.enable(walletName);
-      const addresses = await walletInstance.walletInstance.getUsedAddresses();
-      const address = addresses[0];
       
-      if (address) {
-        setWalletAddress(address);
-        setWalletName(walletName);
-        localStorage.setItem('walletAddress', address);
-        localStorage.setItem('walletName', walletName);
-        
-        // Fetch assets after successful connection
-        await fetchAssets(walletInstance);
+      // Try multiple methods to get an address
+      let address: string | null = null;
+      
+      // First, try to get used addresses
+      try {
+        const usedAddresses = await walletInstance.getUsedAddresses();
+        if (usedAddresses && usedAddresses.length > 0) {
+          address = usedAddresses[0];
+        }
+      } catch (error) {
+        console.warn('Error getting used addresses:', error);
       }
+      
+      // If no used addresses, try unused addresses
+      if (!address) {
+        try {
+          const unusedAddresses = await walletInstance.getUnusedAddresses();
+          if (unusedAddresses && unusedAddresses.length > 0) {
+            address = unusedAddresses[0];
+          }
+        } catch (error) {
+          console.warn('Error getting unused addresses:', error);
+        }
+      }
+      
+      // If still no address, try change address
+      if (!address) {
+        try {
+          const changeAddress = await walletInstance.getChangeAddress();
+          if (changeAddress) {
+            address = changeAddress;
+          }
+        } catch (error) {
+          console.warn('Error getting change address:', error);
+        }
+      }
+      
+      // If still no address, try reward addresses
+      if (!address) {
+        try {
+          const rewardAddresses = await walletInstance.getRewardAddresses();
+          if (rewardAddresses && rewardAddresses.length > 0) {
+            address = rewardAddresses[0];
+          }
+        } catch (error) {
+          console.warn('Error getting reward addresses:', error);
+        }
+      }
+      
+      if (!address) {
+        throw new Error('Could not retrieve any address from wallet. Please ensure your wallet has been initialized.');
+      }
+      
+      // Set wallet state
+      setWalletAddress(address);
+      setWalletName(walletName);
+      localStorage.setItem('walletAddress', address);
+      localStorage.setItem('walletName', walletName);
+      
+      // Fetch assets after successful connection
+      await fetchAssets(walletInstance);
     } catch (error) {
+      console.error('Error connecting wallet:', error);
+      // Re-throw the error so the UI can handle it
       throw error;
     } finally {
       setIsConnecting(false);
