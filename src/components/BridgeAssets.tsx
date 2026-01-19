@@ -32,15 +32,22 @@ const BridgeAssets: React.FC<BridgeAssetsProps> = ({ onFromChainChange }) => {
     // Remove all non-numeric characters except decimal point
     const numericValue = value.replace(/[^\d.]/g, '');
     
+    // Parse to number and limit to 2 decimal places
+    const num = parseFloat(numericValue);
+    if (isNaN(num)) return '';
+    
+    // Format with 2 decimal places
+    const formatted = num.toFixed(2);
+    
     // Split by decimal point
-    const parts = numericValue.split('.');
+    const parts = formatted.split('.');
     
     // Add commas to the integer part
     if (parts[0]) {
       parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     }
     
-    // Join back with decimal point if there was one
+    // Join back with decimal point
     return parts.join('.');
   };
 
@@ -292,7 +299,7 @@ const BridgeAssets: React.FC<BridgeAssetsProps> = ({ onFromChainChange }) => {
   return (
     <Panel title="Bridge Assets" className=''>
 
-      <div className="bridge-form  min-h-[400px] flex flex-col justify-evenly items-center flex-1">
+      <div className="bridge-form  flex flex-col justify-evenly items-center flex-1">
         {/* From/To Selectors */}
         <div className="flex justify-between items-center w-full  gap-4">
           <div className="w-1/2 flex justify-evenly  items-center gap-4  bg-[#1c1c1c] p-3 rounded-lg">
@@ -399,13 +406,13 @@ const BridgeAssets: React.FC<BridgeAssetsProps> = ({ onFromChainChange }) => {
           </div>
         </div>
         <div className="w-full mt-6 flex items-center justify-between gap-4  bg-[#1c1c1c] p-4 rounded-lg">
-          <div>
+          <div className="w-full">
             <div className="text-[#A1A1A1]">Address</div>
             <input
               type="text"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              className="text-white bg-transparent border-none outline-none w-full min-w-[600px]"
+              className="text-white bg-transparent border-none outline-none w-full"
               placeholder="Enter address..."
             />
           </div>
@@ -418,12 +425,17 @@ const BridgeAssets: React.FC<BridgeAssetsProps> = ({ onFromChainChange }) => {
               className={` bg-[#1c1c1c] text-[#A1A1A1] px-7  py-2 rounded-full ${selectedPercentage === percentage ? ' bg-[#282727] ' : ''}`}
               onClick={() => {
                 setSelectedPercentage(percentage);
+                const isADA = selectedWalletAsset?.unit === 'lovelace' || selectedWalletAsset?.symbol === 'ADA';
+                const rawQuantity = selectedWalletAsset?.quantity || 0;
+                // Convert from lovelace to ADA if needed
+                const displayQuantity = isADA ? rawQuantity / 1000000 : rawQuantity;
+                
                 let amount: string;
                 if (percentage === 'MAX') {
-                  amount = String(selectedWalletAsset?.quantity || 0);
+                  amount = String(displayQuantity);
                 } else {
                   const percentageValue = parseFloat(percentage.replace('%', '')) / 100;
-                  amount = String((selectedWalletAsset?.quantity || 0) * percentageValue);
+                  amount = String(displayQuantity * percentageValue);
                 }
                 setSendAmount(amount);
                 setDisplayAmount(formatWithCommas(amount));
@@ -439,7 +451,7 @@ const BridgeAssets: React.FC<BridgeAssetsProps> = ({ onFromChainChange }) => {
 
           <div className="font-bold text-[#A1A1A1] text-sm">Receive:</div>
           <div className="flex items-center gap-2">
-            <div className="receive-amount">{sendAmount}</div>
+            <div className="receive-amount">{formatWithCommas(sendAmount)}</div>
             <div className="text-[#A1A1A1] text-sm">{renderCryptoIcon(selectedWalletAsset, 'w-[30px] h-[30px]')}</div>
           </div>
 
@@ -461,10 +473,10 @@ const BridgeAssets: React.FC<BridgeAssetsProps> = ({ onFromChainChange }) => {
         <button
           onClick={handleSendTransaction}
           disabled={isSending || !isConnected || !address || !sendAmount || parseFloat(sendAmount) <= 0}
-          className={`w-full py-4 px-6 rounded-lg font-bold text-lg transition-all duration-200 ${
+          className={`w-full py-3 px-6 rounded-3xl font-bold text-lg transition-all duration-200 ${
             isSending || !isConnected || !address || !sendAmount || parseFloat(sendAmount) <= 0
               ? 'bg-[#1c1c1c] text-[#666] cursor-not-allowed'
-              : 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer active:scale-95'
+              : 'bg-[#F85858] hover:bg-[#F85858]/80 text-white cursor-pointer active:scale-95'
           }`}
         >
           {isSending ? 'Sending Transaction...' : 'Send Transaction'}
