@@ -13,6 +13,7 @@ const Navbar = () => {
 
   const handleConnectWallet = async (walletName: string) => {
     try {
+      console.log('Connecting wallet:', walletName);
       await connectWallet(walletName);
       setIsModalOpen(false);
     } catch (error) {

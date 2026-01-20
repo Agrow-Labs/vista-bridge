@@ -43,6 +43,9 @@ const Inventory: React.FC<InventoryProps> = ({ fromChain }) => {
         </div>
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 justify-between">
+          {(() => {
+            return null;
+          })()}
           {filteredAssets && filteredAssets.length > 0 ? (
             filteredAssets.map((asset, index) => {
               const isSelected = selectedAsset && selectedAsset.symbol === asset.symbol;

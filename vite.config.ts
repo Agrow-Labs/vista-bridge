@@ -3,6 +3,10 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import wasm from 'vite-plugin-wasm'
 import topLevelAwait from 'vite-plugin-top-level-await'
+import path from 'path'
+import { fileURLToPath } from 'url'
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -20,6 +24,7 @@ export default defineConfig({
       process: 'process/browser',
       crypto: 'crypto-browserify',
       stream: 'stream-browserify',
+      '@lucid-evolution/lucid': path.resolve(__dirname, './src/stubs/lucid-stub.ts'),
     },
   },
   optimizeDeps: {
@@ -27,7 +32,8 @@ export default defineConfig({
       '@meshsdk/core', 
       '@meshsdk/react',
       'buffer', 
-    ]
+    ],
+    exclude: ['@lucid-evolution/lucid'],
   },
   build: {
     commonjsOptions: {

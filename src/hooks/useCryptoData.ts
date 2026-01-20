@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { getADABTCData, convertCoinGeckoToCryptoAsset } from '../services/coingecko';
-
+import { ADA_ICON_URL } from '../services/blockfrost';
 
 export interface CryptoAsset {
   symbol: string;
@@ -21,7 +20,6 @@ interface UseCryptoDataReturn {
   refetch: () => void;
 }
 
-
 export const useCryptoData = (): UseCryptoDataReturn => {
   const [cryptoAssets, setCryptoAssets] = useState<CryptoAsset[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,43 +30,18 @@ export const useCryptoData = (): UseCryptoDataReturn => {
       setLoading(true);
       setError(null);
       
-      // Fetch both Cardano assets and CoinGecko data in parallel
-      const [cardanoAssets, coinGeckoData] = await Promise.allSettled([
-        // Fetch Cardano assets from Blockfrost
-        (async () => {
-          return [];
-        })(),
-        // Fetch ADA and BTC data from CoinGecko
-        (async () => {
-          const coinGeckoPrices = await getADABTCData();
-          return coinGeckoPrices.map(coin => convertCoinGeckoToCryptoAsset(coin));
-        })()
-      ]);
+      // Create ADA asset using Blockfrost data structure
+      // ADA is the native currency (lovelace) on Cardano
+      const adaAsset: CryptoAsset = {
+        symbol: 'ADA',
+        icon: '₳',
+        image: ADA_ICON_URL,
+        chain: 'cardano'
+      };
 
-      const allAssets: CryptoAsset[] = [];
-
-      // Add Cardano assets if successful
-      if (cardanoAssets.status === 'fulfilled') {
-        allAssets.push(...cardanoAssets.value);
-      } else {
-        console.warn('Failed to fetch Cardano assets:', cardanoAssets.reason);
-      }
-
-      // Add CoinGecko assets if successful
-      if (coinGeckoData.status === 'fulfilled') {
-        allAssets.push(...coinGeckoData.value);
-      } else {
-        console.warn('Failed to fetch CoinGecko data:', coinGeckoData.reason);
-      }
-
-      // If both failed, throw an error
-      if (cardanoAssets.status === 'rejected' && coinGeckoData.status === 'rejected') {
-        throw new Error('Failed to fetch both Cardano and CoinGecko data');
-      }
-
-      setCryptoAssets(allAssets);
+      setCryptoAssets([adaAsset]);
     } catch (err) {
-      setError('Failed to fetch cryptocurrency data. Please check your API keys and internet connection.');
+      setError('Failed to fetch cryptocurrency data.');
     } finally {
       setLoading(false);
     }
