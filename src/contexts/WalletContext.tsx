@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
 import { useWallet, useWalletList } from '@meshsdk/react';
 import { BrowserWallet } from '@meshsdk/core';
-import { fetchAssetImages } from '../services/blockfrost';
+import { fetchAssetImages } from '../services/dolos';
 import { useCryptoData } from '../hooks/useCryptoData';
 
 interface WalletContextType {
@@ -112,7 +112,7 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
       setIsLoadingAssets(true);
       const walletAssets = await walletInstance.getBalance();
       
-      // Fetch asset images and metadata from Blockfrost
+      // Fetch asset images and metadata from Dolos
       const assetsWithImages = await fetchAssetImages(walletAssets);
       
       // Merge with price data if available

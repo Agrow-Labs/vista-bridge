@@ -34,7 +34,7 @@ export const useCryptoData = (): UseCryptoDataReturn => {
       
       // Fetch both Cardano assets and CoinGecko data in parallel
       const [cardanoAssets, coinGeckoData] = await Promise.allSettled([
-        // Fetch Cardano assets from Blockfrost
+        // Fetch Cardano assets from Dolos (if needed in the future)
         (async () => {
           return [];
         })(),
