@@ -3,6 +3,8 @@ import { createIndexerForRoute, createMirrorForRoute } from "../../common/chain-
 import { mockBridgeRoute } from "../fixtures.js";
 import { CardanoIndexer } from "../../cardano-indexer/index.js";
 import { CardanoMirror } from "../../cardano-mirror/index.js";
+import { EvmIndexer } from "../../evm-indexer/index.js";
+import { EvmMirror } from "../../evm-mirror/index.js";
 import { Effect } from "effect";
 
 // Minimal mock relayer for factory tests
@@ -31,21 +33,49 @@ describe("Chain Factory", () => {
     expect(mirror.chainId).toBe("cardano-preview");
   });
 
+  it("creates EvmIndexer for evm source", () => {
+    const route = mockBridgeRoute({ id: "evm-route" });
+    route.source = {
+      chainId: "eth-sepolia",
+      chainType: "evm",
+      name: "sepolia",
+      evmChainId: 11155111,
+      addresses: ["0x0000000000000000000000000000000000000001"],
+    };
+    const indexer = createIndexerForRoute(route, mockRelayer);
+    expect(indexer).toBeInstanceOf(EvmIndexer);
+    expect(indexer.chainId).toBe("eth-sepolia");
+  });
+
+  it("creates EvmMirror for evm destination", () => {
+    const route = mockBridgeRoute({ id: "evm-route" });
+    route.destination = {
+      chainId: "eth-sepolia",
+      chainType: "evm",
+      name: "sepolia",
+      evmChainId: 11155111,
+      addresses: ["0x0000000000000000000000000000000000000002"],
+    };
+    const mirror = createMirrorForRoute(route, mockRelayer);
+    expect(mirror).toBeInstanceOf(EvmMirror);
+    expect(mirror.chainId).toBe("eth-sepolia");
+  });
+
   it("throws for unsupported source chain type", () => {
     const route = mockBridgeRoute();
-    route.source.chainType = "evm" as any;
+    route.source.chainType = "solana" as any;
 
     expect(() => createIndexerForRoute(route, mockRelayer)).toThrow(
-      "Unsupported source chain type: evm",
+      "Unsupported source chain type: solana",
     );
   });
 
   it("throws for unsupported destination chain type", () => {
     const route = mockBridgeRoute();
-    route.destination.chainType = "solana" as any;
+    route.destination.chainType = "bitcoin" as any;
 
     expect(() => createMirrorForRoute(route, mockRelayer)).toThrow(
-      "Unsupported destination chain type: solana",
+      "Unsupported destination chain type: bitcoin",
     );
   });
 

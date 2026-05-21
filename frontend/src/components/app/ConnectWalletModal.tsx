@@ -166,6 +166,7 @@ export default function ConnectWalletModal({
                         key={w.id}
                         onClick={() => onSelect(w.id, cat.label)}
                         disabled={connecting !== null && !isConnecting}
+                        data-testid={`wallet-option-${w.id}`}
                         className={`flex flex-col items-center gap-[8px] py-[14px] px-[8px] rounded-[10px] transition-all ${
                           isConnecting
                             ? "bg-[#f85858]/15 border border-[#f85858]"

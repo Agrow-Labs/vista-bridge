@@ -48,15 +48,21 @@ export interface ChainConfig {
   /** Lucid network name: "Preprod" | "Preview" | "Mainnet" */
   lucidNetwork?: string;
 
-  // ── EVM-specific (future) ────────────────────────────────────────
-  /** JSON-RPC endpoint (EVM, Solana) */
+  // ── EVM-specific ─────────────────────────────────────────────────
+  /** HTTPS JSON-RPC endpoint (EVM, Solana) */
   rpcEndpoint?: string;
-  /** Chain ID (EVM) */
+  /** WSS endpoint for eth_subscribe (EVM) */
+  wsEndpoint?: string;
+  /** Numeric chain ID (EVM), e.g. 11155111 for Sepolia */
   evmChainId?: number;
+  /** Required block confirmations before considering a deposit final (EVM indexer) */
+  evmConfirmations?: number;
 
   // ── Common ───────────────────────────────────────────────────────
   /** Deposit addresses (when used as source) or sender addresses (when used as destination) */
   addresses: string[];
-  /** Wallet seed phrase or private key for signing mirror txs (destination only) */
+  /** Wallet seed phrase for signing mirror txs (Cardano destination) */
   walletSeed?: string;
+  /** Hex private key (0x-prefixed) for signing mirror txs (EVM destination) */
+  walletPrivateKey?: string;
 }

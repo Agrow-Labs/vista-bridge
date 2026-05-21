@@ -1,5 +1,8 @@
 {
   "name": "vista-bridge",
   "private": true,
-  "workspaces": ["frontend", "offchain", "packages/*"]
+  "workspaces": ["frontend", "offchain", "packages/*"],
+  "devDependencies": {
+    "ganache": "^7.9.2"
+  }
 }

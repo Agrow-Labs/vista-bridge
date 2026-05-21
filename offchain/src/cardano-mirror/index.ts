@@ -116,12 +116,31 @@ export class CardanoMirror implements IChainMirror {
         return Buffer.from(hex, "hex").toString("utf8");
       };
 
+      // For genuine cross-chain (e.g. EVM → Cardano), `deposit.senderAddress` is an
+      // EVM address and not a valid Cardano recipient. The cross-chain destination
+      // arrives via the register API in `deposit.recipientAddress`. Same-chain
+      // routes (Preprod ↔ Preview) keep the legacy senderAddress behaviour.
+      const isCrossChainFromEvm = route.source.chainType === "evm";
+      const resolveRecipient = (deposit: DepositEvent): string => {
+        if (isCrossChainFromEvm) {
+          const r = deposit.recipientAddress;
+          if (!r || !r.startsWith("addr")) {
+            throw new MirrorError(
+              `Cross-chain deposit ${deposit.transactionHash} has no Cardano recipientAddress — caller must POST /api/deposit/register first`,
+            );
+          }
+          return r;
+        }
+        return deposit.senderAddress;
+      };
+
       // ── Build + sign mirror tx ──────────────────────────────────
       const buildMirrorTx = (deposit: DepositEvent): Effect.Effect<string, MirrorError> =>
         Effect.tryPromise({
           try: async () => {
             const assetCfg = getAssetConfig(route, deposit.assetType);
             const tx = new Transaction({ initiator: wallet });
+            const recipient = resolveRecipient(deposit);
 
             if (deposit.assetType === "ADA") {
               // ── ADA: deduct fee from amount (existing behavior) ──
@@ -130,29 +149,33 @@ export class CardanoMirror implements IChainMirror {
               if (netAmount <= BigInt(1_000_000)) {
                 throw new Error(`Insufficient after fees: ${deposit.amount} - ${feeAmount} = ${netAmount}`);
               }
-              console.log(`🏗️ Mirror [${route.id}]: ${netAmount} lovelace to ${deposit.senderAddress}`);
-              tx.sendLovelace(deposit.senderAddress, netAmount.toString());
+              console.log(`🏗️ Mirror [${route.id}]: ${netAmount} lovelace to ${recipient}`);
+              tx.sendLovelace(recipient, netAmount.toString());
             } else if (assetCfg.destinationAction === "mint") {
               // ── Mint: create tokens via native script (e.g. vHOSKY on Preview) ──
               const forgeScript = ForgeScript.withOneSignature(walletAddr);
               const assetNameHex = assetNameFromUnit(assetCfg.destinationUnit);
-              console.log(`🏗️ Mirror [${route.id}]: Minting ${deposit.amount} ${deposit.assetType} to ${deposit.senderAddress}`);
+              console.log(`🏗️ Mirror [${route.id}]: Minting ${deposit.amount} ${deposit.assetType} to ${recipient}`);
               tx.mintAsset(forgeScript, {
                 assetName: assetNameHex,
                 assetQuantity: deposit.amount.toString(),
-                recipient: { address: deposit.senderAddress },
+                recipient: { address: recipient },
               });
             } else {
               // ── Send: transfer from wallet balance (e.g. tHOSKY on Preprod) ──
-              console.log(`🏗️ Mirror [${route.id}]: Sending ${deposit.amount} ${deposit.assetType} to ${deposit.senderAddress}`);
-              tx.sendAssets(deposit.senderAddress, [
+              console.log(`🏗️ Mirror [${route.id}]: Sending ${deposit.amount} ${deposit.assetType} to ${recipient}`);
+              tx.sendAssets(recipient, [
                 { unit: assetCfg.destinationUnit, quantity: deposit.amount.toString() },
               ]);
             }
 
+            // Cardano metadata strings are capped at 64 bytes; EVM tx hashes are
+            // 66 chars ("0x" + 64 hex), so chunk anything that overflows.
+            const chunk64 = (s: string): string | string[] =>
+              s.length <= 64 ? s : [s.slice(0, 64), s.slice(64)];
             tx.setMetadata(1337, {
               msg: ["VISTA Bridge mirror", deposit.transactionHash.slice(0, 32)],
-              originalTx: deposit.transactionHash,
+              originalTx: chunk64(deposit.transactionHash),
               a: deposit.assetType,
               bridgeVersion: "1.1.0",
             });

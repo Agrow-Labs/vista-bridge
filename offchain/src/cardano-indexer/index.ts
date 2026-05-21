@@ -113,6 +113,13 @@ export class CardanoIndexer implements IChainIndexer {
                   const deposits = await extractDepositsFromTx(event.Tx, address, allowedAssetUnits);
                   for (const dep of deposits) {
                     dep.routeId = route.id;
+                    // For cross-chain routes the destination address is not a
+                    // Cardano address. Clear recipientAddress so that a later
+                    // POST /api/deposit/register (which carries the real cross-
+                    // chain destination) is not overwritten via INSERT OR REPLACE.
+                    if (route.destination.chainType !== "cardano") {
+                      dep.recipientAddress = "";
+                    }
                     emit.single(dep);
                   }
                 }
