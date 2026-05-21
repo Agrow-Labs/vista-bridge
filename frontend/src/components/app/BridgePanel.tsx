@@ -25,6 +25,17 @@ import type { ApiBridgeRoute } from "@vista-bridge/shared";
 const NETWORK_CHAIN_MAP: Record<string, string> = {
   cardano: "cardano-preprod",
   agrologos: "cardano-preview",
+  ethereum: "eth-sepolia",
+};
+
+// MetaMask chain-switch params for Sepolia (chainId 11155111 = 0xaa36a7).
+const SEPOLIA_CHAIN_HEX = "0xaa36a7";
+const SEPOLIA_ADD_CHAIN_PARAMS = {
+  chainId: SEPOLIA_CHAIN_HEX,
+  chainName: "Ethereum Sepolia",
+  nativeCurrency: { name: "Sepolia ETH", symbol: "ETH", decimals: 18 },
+  rpcUrls: ["https://ethereum-sepolia.publicnode.com"],
+  blockExplorerUrls: ["https://sepolia.etherscan.io"],
 };
 function findRouteForNetworks(routes: ApiBridgeRoute[], fromId: string, toId: string) {
   const srcChain = NETWORK_CHAIN_MAP[fromId] ?? fromId;
@@ -33,6 +44,11 @@ function findRouteForNetworks(routes: ApiBridgeRoute[], fromId: string, toId: st
 }
 
 const percentages = ["10%", "25%", "50%", "75%", "MAX"];
+
+// Minimal EIP-1193 provider shape — we only need request() for the EVM flow.
+interface EthereumProvider {
+  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+}
 
 interface BridgePanelProps {
   onToast?: (toast: ToastMessage) => void;
@@ -85,6 +101,14 @@ export default function BridgePanel({ onToast, onWalletChange, onNetworkChange, 
   // ── Wallet modal state ───────────────────────────────────────────
   const [showWalletModal, setShowWalletModal] = useState(false);
   const [connectingWallet, setConnectingWallet] = useState<string | null>(null);
+  /** Which slot the wallet modal is being opened for. "source" connects the
+   *  sender (handles tx building/signing). "destination" only auto-fills the
+   *  receiver address — no signing context is captured for the destination. */
+  const [walletModalRole, setWalletModalRole] = useState<"source" | "destination">("source");
+
+  // ── Destination-wallet state (read-only — just for auto-fill + UI badge) ─
+  const [destWalletLabel, setDestWalletLabel] = useState("");
+  const [destWalletConnected, setDestWalletConnected] = useState(false);
 
   // ── Wallet instance (for balance queries + tx signing) ──────────
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -293,7 +317,12 @@ export default function BridgePanel({ onToast, onWalletChange, onNetworkChange, 
   };
 
   const handleConnectWallet = useCallback(() => {
-    // Open the unified wallet selection modal for all chain types
+    setWalletModalRole("source");
+    setShowWalletModal(true);
+  }, []);
+
+  const handleConnectDestWallet = useCallback(() => {
+    setWalletModalRole("destination");
     setShowWalletModal(true);
   }, []);
 
@@ -302,6 +331,12 @@ export default function BridgePanel({ onToast, onWalletChange, onNetworkChange, 
     setSenderAddress("");
     setWalletLabel("");
     walletInstanceRef.current = null;
+  }, []);
+
+  const handleDisconnectDestWallet = useCallback(() => {
+    setDestWalletConnected(false);
+    setDestWalletLabel("");
+    setReceiverAddress("");
   }, []);
 
   // Expose handleConnectWallet / handleDisconnectWallet / selectTokenBySymbol to parent via refs
@@ -445,27 +480,145 @@ export default function BridgePanel({ onToast, onWalletChange, onNetworkChange, 
       return;
     }
 
-    // Non-Cardano chains: coming soon
-    toast("info", `${fromNetwork.name} bridging coming soon. Currently only Cardano is supported.`);
+    // ── EVM bridge flow (MetaMask + other window.ethereum wallets) ──
+    if (fromNetwork.walletType === "evm") {
+      const w = typeof window !== "undefined"
+        ? (window as unknown as { ethereum?: EthereumProvider })
+        : undefined;
+      if (!w?.ethereum) {
+        toast("error", "No EVM wallet detected. Install MetaMask and reconnect.");
+        return;
+      }
+      const provider = w.ethereum;
+
+      const activeRoute = findRouteForNetworks(bridgeRoutes, fromNetwork.id, toNetwork.id);
+      const depositAddress = activeRoute?.depositAddresses?.[0];
+      if (!depositAddress) {
+        toast("error", "No active bridge route for this direction. Check backend config.");
+        return;
+      }
+      if (!/^0x[a-fA-F0-9]{40}$/.test(depositAddress)) {
+        toast("error", `Bridge deposit address looks invalid: ${depositAddress}`);
+        return;
+      }
+
+      setBridging(true);
+      try {
+        // Make sure the wallet is on Sepolia (only ETH/Sepolia is wired up today).
+        try {
+          await provider.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: SEPOLIA_CHAIN_HEX }],
+          });
+        } catch (switchErr: unknown) {
+          // 4902 = chain not in wallet — add it then retry.
+          const code = (switchErr as { code?: number })?.code;
+          if (code === 4902) {
+            await provider.request({
+              method: "wallet_addEthereumChain",
+              params: [SEPOLIA_ADD_CHAIN_PARAMS],
+            });
+          } else {
+            throw switchErr;
+          }
+        }
+
+        // ETH amount: numAmount is in ETH — convert to wei.
+        const weiPerEth = BigInt("1000000000000000000"); // 10^18
+        const integer = Math.floor(numAmount);
+        const fractional = numAmount - integer;
+        const value =
+          BigInt(integer) * weiPerEth +
+          BigInt(Math.round(fractional * 1e18));
+        if (value <= BigInt(0)) {
+          toast("error", "Amount must be greater than 0");
+          setBridging(false);
+          return;
+        }
+        const valueHex = "0x" + value.toString(16);
+
+        const txHash = await provider.request({
+          method: "eth_sendTransaction",
+          params: [{ from: senderAddress, to: depositAddress, value: valueHex }],
+        });
+
+        // Tell the backend who the recipient is — the EvmIndexer only sees
+        // (from, to, value) so it can't know the user's Cardano destination address.
+        try {
+          await bridgeApi.registerDeposit({
+            depositTxHash: txHash as string,
+            senderAddress,
+            recipientAddress: receiverAddress,
+            amount: value.toString(),
+            sourceNetwork: fromNetwork.id,
+            routeId: activeRoute?.id,
+            assetType: "ETH",
+          });
+        } catch {
+          // Non-fatal: indexer will pick up the tx independently; recipient
+          // will be lost unless register succeeds — surface a softer warning.
+          toast("info", "Deposit sent — backend register failed, your bridge worker may need to be running.");
+        }
+
+        setActiveBridgeTx(txHash as string);
+        onBridgeSubmit?.(txHash as string, {
+          fromNetworkId: fromNetwork.id,
+          fromNetworkName: fromNetwork.name,
+          toNetworkId: toNetwork.id,
+          toNetworkName: toNetwork.name,
+          token: selectedToken.symbol,
+          outputToken: bridgeResult.outputSymbol,
+          amount,
+          senderAddress,
+          recipientAddress: receiverAddress,
+        });
+        toast("success", `Deposit submitted! TX: ${String(txHash).slice(0, 16)}...`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "Transaction failed";
+        toast("error", `Bridge failed: ${message}`);
+      } finally {
+        setBridging(false);
+      }
+      return;
+    }
+
+    toast("info", `${fromNetwork.name} bridging not yet supported.`);
   };
 
   // ── Unified wallet selection handler ────────────────────────────
   const handleWalletSelect = async (walletId: string, category: string) => {
     setConnectingWallet(walletId);
+    const isDest = walletModalRole === "destination";
+    // For the destination slot we only need the address — no signing context.
+    const acceptSourceAddress = (address: string, walletName: string, wallet: unknown) => {
+      walletInstanceRef.current = wallet;
+      setSenderAddress(address);
+      setWalletLabel(truncateAddress(address));
+      setIsWalletConnected(true);
+      toast("success", `Connected via ${walletName}`);
+    };
+    const acceptDestAddress = (address: string, walletName: string) => {
+      setReceiverAddress(address);
+      setDestWalletLabel(truncateAddress(address));
+      setDestWalletConnected(true);
+      toast("success", `Destination ${walletName} connected`);
+    };
+
     try {
       if (category === "Cardano") {
         // ── Cardano: Mesh SDK BrowserWallet ──────────────────────
         const { BrowserWallet } = await import("@meshsdk/core");
         const wallet = await BrowserWallet.enable(walletId);
         const address = await wallet.getChangeAddress();
-        walletInstanceRef.current = wallet;
-        setSenderAddress(address);
-        setWalletLabel(truncateAddress(address));
-        setIsWalletConnected(true);
+        const walletName = walletId.charAt(0).toUpperCase() + walletId.slice(1);
+        if (isDest) {
+          acceptDestAddress(address, `Cardano ${walletName}`);
+        } else {
+          acceptSourceAddress(address, `Cardano ${walletName}`, wallet);
+        }
         setShowWalletModal(false);
         setConnectingWallet(null);
-        const walletName = walletId.charAt(0).toUpperCase() + walletId.slice(1);
-        toast("success", `Connected to Cardano via ${walletName}`);
+        return; /* eslint-disable-line no-useless-return -- early exit below preserved by old fallthrough */
 
       } else if (category === "EVM Compatible") {
         // ── EVM wallets: window.ethereum provider ────────────────
@@ -477,17 +630,17 @@ export default function BridgePanel({ onToast, onWalletChange, onNetworkChange, 
         }
 
         const w = typeof window !== "undefined" ? (window as unknown as Record<string, unknown>) : undefined;
-        let provider: { request: (args: { method: string }) => Promise<string[]> } | undefined;
+        let provider: EthereumProvider | undefined;
 
         // Resolve the correct provider for each wallet
         if (walletId === "xdcpay" && w?.xdc) {
-          provider = w.xdc as typeof provider;
+          provider = w.xdc as EthereumProvider;
         } else if (walletId === "okx" && w?.okxwallet) {
-          provider = w.okxwallet as typeof provider;
+          provider = w.okxwallet as EthereumProvider;
         } else if (walletId === "wanwallet" && w?.wanchain) {
-          provider = w.wanchain as typeof provider;
+          provider = w.wanchain as EthereumProvider;
         } else if (w?.ethereum) {
-          provider = w.ethereum as typeof provider;
+          provider = w.ethereum as EthereumProvider;
         }
 
         if (!provider) {
@@ -497,15 +650,20 @@ export default function BridgePanel({ onToast, onWalletChange, onNetworkChange, 
           return;
         }
 
-        const accounts = await provider.request({ method: "eth_requestAccounts" });
+        const accounts = (await provider.request({ method: "eth_requestAccounts" })) as string[];
         if (accounts.length > 0) {
-          setSenderAddress(accounts[0]);
-          setWalletLabel(truncateAddress(accounts[0]));
-          setIsWalletConnected(true);
+          const walletName = walletId.charAt(0).toUpperCase() + walletId.slice(1);
+          if (isDest) {
+            acceptDestAddress(accounts[0], `EVM ${walletName}`);
+          } else {
+            acceptSourceAddress(accounts[0], `EVM ${walletName}`, provider);
+            // Best-effort: nudge the wallet onto Sepolia immediately.
+            provider
+              .request({ method: "wallet_switchEthereumChain", params: [{ chainId: SEPOLIA_CHAIN_HEX }] })
+              .catch(() => {});
+          }
           setShowWalletModal(false);
           setConnectingWallet(null);
-          const walletName = walletId.charAt(0).toUpperCase() + walletId.slice(1);
-          toast("success", `Connected via ${walletName}`);
         }
 
       } else if (category === "BTC") {
@@ -523,12 +681,13 @@ export default function BridgePanel({ onToast, onWalletChange, onNetworkChange, 
           const unisat = w.unisat as { requestAccounts: () => Promise<string[]> };
           const accounts = await unisat.requestAccounts();
           if (accounts.length > 0) {
-            setSenderAddress(accounts[0]);
-            setWalletLabel(truncateAddress(accounts[0]));
-            setIsWalletConnected(true);
+            if (isDest) {
+              acceptDestAddress(accounts[0], "Unisat");
+            } else {
+              acceptSourceAddress(accounts[0], "Unisat", w.unisat);
+            }
             setShowWalletModal(false);
             setConnectingWallet(null);
-            toast("success", "Connected via Unisat");
           }
         } else {
           setConnectingWallet(null);
@@ -670,6 +829,7 @@ export default function BridgePanel({ onToast, onWalletChange, onNetworkChange, 
           {!isWalletConnected && (
             <button
               onClick={handleConnectWallet}
+              data-testid="connect-source"
               className="bg-[#f85858] hover:bg-[#f85858]/80 text-white text-[10px] font-bold px-[10px] py-[5px] rounded-full shrink-0 transition-colors"
               style={{ fontFamily: "'Raleway', sans-serif" }}
             >
@@ -770,15 +930,31 @@ export default function BridgePanel({ onToast, onWalletChange, onNetworkChange, 
           <span className="text-[12px] text-[#a1a1a1] shrink-0" style={{ fontFamily: "'Inter', sans-serif" }}>
             To:
           </span>
-          <input
-            type="text"
-            placeholder={`Paste ${toNetwork.name} address (${toNetwork.addressHint})`}
-            value={receiverAddress}
-            onChange={(e) => setReceiverAddress(e.target.value)}
-            className="flex-1 bg-transparent text-[12px] text-white outline-none placeholder-[#555] min-w-0"
-            style={{ fontFamily: "'Inter', sans-serif" }}
-          />
-          {receiverAddress && (
+          {destWalletConnected ? (
+            <div className="flex items-center gap-[8px] flex-1 min-w-0">
+              <span className="text-[12px] text-white truncate" style={{ fontFamily: "'Inter', sans-serif" }}>
+                {destWalletLabel || receiverAddress}
+              </span>
+              <button
+                onClick={handleDisconnectDestWallet}
+                className="text-[10px] text-[#f85858] hover:text-white transition-colors shrink-0"
+                data-testid="disconnect-destination"
+              >
+                Disconnect
+              </button>
+            </div>
+          ) : (
+            <input
+              type="text"
+              placeholder={`Paste ${toNetwork.name} address (${toNetwork.addressHint})`}
+              value={receiverAddress}
+              onChange={(e) => setReceiverAddress(e.target.value)}
+              className="flex-1 bg-transparent text-[12px] text-white outline-none placeholder-[#555] min-w-0"
+              style={{ fontFamily: "'Inter', sans-serif" }}
+              data-testid="receiver-input"
+            />
+          )}
+          {!destWalletConnected && receiverAddress && (
             <div className="shrink-0">
               {validateAddress(receiverAddress, toNetwork).valid ? (
                 <span className="text-[#22c55e] text-[14px]">{"\u2714"}</span>
@@ -786,6 +962,16 @@ export default function BridgePanel({ onToast, onWalletChange, onNetworkChange, 
                 <span className="text-[#f85858] text-[14px]">{"\u2716"}</span>
               )}
             </div>
+          )}
+          {!destWalletConnected && (
+            <button
+              onClick={handleConnectDestWallet}
+              className="bg-[#f85858] hover:bg-[#f85858]/80 text-white text-[10px] font-bold px-[10px] py-[5px] rounded-full shrink-0 transition-colors"
+              style={{ fontFamily: "'Raleway', sans-serif" }}
+              data-testid="connect-destination"
+            >
+              Connect
+            </button>
           )}
         </div>
 
@@ -824,6 +1010,7 @@ export default function BridgePanel({ onToast, onWalletChange, onNetworkChange, 
         <button
           onClick={handleBridge}
           disabled={bridging || configLoading}
+          data-testid="bridge-cta"
           className={`${bridging || configLoading ? "bg-[#f85858]/50 cursor-not-allowed" : "bg-[#f85858] hover:bg-[#f85858]/90"} transition-colors rounded-full h-[53px] flex items-center justify-center gap-[5px] w-full`}
         >
           <Image src="/assets/icons/wallet.svg" alt="wallet" width={16} height={16} />
@@ -843,7 +1030,7 @@ export default function BridgePanel({ onToast, onWalletChange, onNetworkChange, 
         onClose={() => { setShowWalletModal(false); setConnectingWallet(null); }}
         onSelect={handleWalletSelect}
         connecting={connectingWallet}
-        walletType={fromNetwork.walletType}
+        walletType={walletModalRole === "destination" ? toNetwork.walletType : fromNetwork.walletType}
       />
     </div>
   );
@@ -865,9 +1052,10 @@ interface NetworkDropdownProps {
 const NetworkDropdown = forwardRef<HTMLDivElement, NetworkDropdownProps>(
   function NetworkDropdown({ label, selected, networks, exclude, open, onToggle, onSelect }, ref) {
     return (
-      <div ref={ref} className="relative flex-1 h-full">
+      <div ref={ref} className="relative flex-1 h-full" data-testid={`network-dropdown-${label.toLowerCase()}`}>
         <button
           onClick={onToggle}
+          data-testid={`network-dropdown-${label.toLowerCase()}-toggle`}
           className="bg-[#1c1c1c] rounded-[15px] w-full h-full flex items-center gap-[10px] px-[15px] py-[10px] hover:bg-[#252525] transition-colors overflow-hidden min-w-0"
         >
           <div className="w-[28px] h-[28px] rounded-full overflow-hidden shrink-0">
@@ -894,6 +1082,7 @@ const NetworkDropdown = forwardRef<HTMLDivElement, NetworkDropdownProps>(
                 <button
                   key={net.id}
                   onClick={() => onSelect(net)}
+                  data-testid={`network-option-${label.toLowerCase()}-${net.id}`}
                   className={`w-full flex items-center gap-[8px] px-[12px] py-[8px] hover:bg-[#252525] transition-colors ${
                     net.id === selected.id ? "bg-[#252525]" : ""
                   }`}

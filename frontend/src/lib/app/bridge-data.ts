@@ -30,7 +30,7 @@ export const NETWORKS: Network[] = [
   },
   {
     id: "ethereum",
-    name: "Ethereum",
+    name: "Ethereum Sepolia",
     image: "/assets/tokens/ethereum.png",
     addressRegex: /^0x[a-fA-F0-9]{40}$/,
     addressHint: "0x...",

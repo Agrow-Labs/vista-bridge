@@ -28,10 +28,13 @@ export default function AppPage() {
   const allowedNetworkIds = useMemo(() => {
     if (routes.length === 0) return ["cardano", "agrologos"]; // default while loading
     const ids = new Set<string>();
-    // Map backend chainIds (e.g. "cardano-preprod") to frontend network IDs (e.g. "cardano")
+    // Map backend chainIds (e.g. "cardano-preprod") to frontend network IDs (e.g. "cardano").
+    // Keep this in sync with NETWORK_CHAIN_MAP in BridgePanel.tsx.
     const chainIdToNetworkId = (chainId: string): string => {
       if (chainId.startsWith("cardano")) return "cardano";
-      // Strip environment suffix (e.g. "ethereum-sepolia" → "ethereum")
+      if (chainId.startsWith("eth-")) return "ethereum";      // eth-sepolia, eth-holesky, …
+      if (chainId.startsWith("ethereum")) return "ethereum";  // ethereum-mainnet
+      // Strip environment suffix as a generic fallback (e.g. "bnb-testnet" → "bnb")
       return chainId.replace(/-\w+$/, "");
     };
     for (const r of routes) {

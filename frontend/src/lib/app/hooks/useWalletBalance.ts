@@ -33,61 +33,87 @@ export function useWalletBalance(
     setError(null);
 
     const fetchBalances = async () => {
-      if (walletInstance) {
+      if (!walletInstance) {
+        setLoading(false);
+        return;
+      }
+
+      // ── EVM wallets expose request() (EIP-1193) — read ETH balance via eth_getBalance.
+      const maybeEvm = walletInstance as { request?: (args: { method: string; params?: unknown[] }) => Promise<unknown> };
+      const isEvm = typeof maybeEvm.request === "function" && typeof (walletInstance as { getBalance?: unknown }).getBalance !== "function";
+      if (isEvm && _address) {
         try {
-          const wallet = walletInstance as {
-            getBalance: () => Promise<
-              Array<{ unit: string; quantity: string }>
-            >;
-          };
-          const rawBalances = await wallet.getBalance();
+          const balanceHex = (await maybeEvm.request!({
+            method: "eth_getBalance",
+            params: [_address, "latest"],
+          })) as string;
           if (cancelled) return;
-
-          const parsed: WalletBalance[] = rawBalances.map((asset) => {
-            if (asset.unit === "lovelace") {
-              const ada = Number(BigInt(asset.quantity)) / 1_000_000;
-              return {
-                symbol: "ADA",
-                balance: ada.toLocaleString(undefined, {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 6,
-                }),
-              };
-            }
-
-            const assetName = asset.unit.slice(56);
-            let symbol = asset.unit.slice(0, 8) + "...";
-            try {
-              if (assetName) {
-                symbol = Buffer.from(assetName, "hex").toString("utf8");
-              }
-            } catch {
-              // Keep truncated hex
-            }
-
-            return {
-              symbol,
-              balance: Number(asset.quantity).toLocaleString(),
-            };
-          });
-
-          setBalances(parsed);
+          const wei = BigInt(balanceHex);
+          const eth = Number(wei) / 1e18;
+          setBalances([
+            {
+              symbol: "ETH",
+              balance: eth.toLocaleString(undefined, {
+                minimumFractionDigits: 4,
+                maximumFractionDigits: 6,
+              }),
+            },
+          ]);
           setLoading(false);
           return;
         } catch (err) {
           if (!cancelled) {
-            setError(
-              err instanceof Error
-                ? err.message
-                : "Failed to fetch wallet balance",
-            );
+            setError(err instanceof Error ? err.message : "Failed to fetch ETH balance");
             setLoading(false);
           }
           return;
         }
       }
 
-      setLoading(false);
+      // ── Cardano CIP-30 path ───────────────────────────────────────
+      try {
+        const wallet = walletInstance as {
+          getBalance: () => Promise<Array<{ unit: string; quantity: string }>>;
+        };
+        const rawBalances = await wallet.getBalance();
+        if (cancelled) return;
+
+        const parsed: WalletBalance[] = rawBalances.map((asset) => {
+          if (asset.unit === "lovelace") {
+            const ada = Number(BigInt(asset.quantity)) / 1_000_000;
+            return {
+              symbol: "ADA",
+              balance: ada.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 6,
+              }),
+            };
+          }
+
+          const assetName = asset.unit.slice(56);
+          let symbol = asset.unit.slice(0, 8) + "...";
+          try {
+            if (assetName) {
+              symbol = Buffer.from(assetName, "hex").toString("utf8");
+            }
+          } catch {
+            // Keep truncated hex
+          }
+
+          return {
+            symbol,
+            balance: Number(asset.quantity).toLocaleString(),
+          };
+        });
+
+        setBalances(parsed);
+        setLoading(false);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "Failed to fetch wallet balance");
+          setLoading(false);
+        }
+      }
     };
 
     fetchBalances();
