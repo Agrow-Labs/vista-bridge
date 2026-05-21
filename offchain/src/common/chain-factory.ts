@@ -2,6 +2,8 @@ import type { IChainIndexer, IChainMirror } from "./chain-interfaces.js";
 import type { BridgeRoute } from "./route.js";
 import { CardanoIndexer } from "../cardano-indexer/index.js";
 import { CardanoMirror } from "../cardano-mirror/index.js";
+import { EvmIndexer } from "../evm-indexer/index.js";
+import { EvmMirror } from "../evm-mirror/index.js";
 
 // ── Relayer service type (minimal interface needed by factories) ────────
 interface RelayerService {
@@ -23,6 +25,8 @@ export function createIndexerForRoute(
   switch (route.source.chainType) {
     case "cardano":
       return new CardanoIndexer(route, relayer);
+    case "evm":
+      return new EvmIndexer(route, relayer);
     default:
       throw new Error(
         `Unsupported source chain type: ${route.source.chainType} (route: ${route.id})`,
@@ -41,6 +45,8 @@ export function createMirrorForRoute(
   switch (route.destination.chainType) {
     case "cardano":
       return new CardanoMirror(route, relayer);
+    case "evm":
+      return new EvmMirror(route, relayer);
     default:
       throw new Error(
         `Unsupported destination chain type: ${route.destination.chainType} (route: ${route.id})`,

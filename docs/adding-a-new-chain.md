@@ -2,6 +2,8 @@
 
 This guide walks through adding support for a new blockchain (e.g., Ethereum, Solana) to the bridge.
 
+> **EVM is already implemented.** For Ethereum/Sepolia setup see [ethereum-bridge.md](./ethereum-bridge.md). The notes below describe the general extension pattern and remain accurate for new chain families (Solana, Bitcoin, etc.).
+
 ## Prerequisites
 
 - Familiarity with the target chain's transaction model

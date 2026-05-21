@@ -48,6 +48,14 @@ function loadRoutesFromFile(filePath: string): BridgeRoute[] {
     route.destination.walletSeed = route.destination.walletSeed ?? process.env[`${envPrefix}_DEST_WALLET_SEED`];
     // Source wallet seed — needed for burn operations on the source chain
     route.source.walletSeed = route.source.walletSeed ?? process.env[`${envPrefix}_SOURCE_WALLET_SEED`];
+
+    // EVM-specific secrets — RPC/WS endpoints and signing keys live in env, not JSON
+    route.source.rpcEndpoint = route.source.rpcEndpoint ?? process.env[`${envPrefix}_SOURCE_RPC_URL`];
+    route.source.wsEndpoint = route.source.wsEndpoint ?? process.env[`${envPrefix}_SOURCE_WS_URL`];
+    route.destination.rpcEndpoint = route.destination.rpcEndpoint ?? process.env[`${envPrefix}_DEST_RPC_URL`];
+    route.destination.wsEndpoint = route.destination.wsEndpoint ?? process.env[`${envPrefix}_DEST_WS_URL`];
+    route.destination.walletPrivateKey = route.destination.walletPrivateKey ?? process.env[`${envPrefix}_DEST_PRIVATE_KEY`];
+    route.source.walletPrivateKey = route.source.walletPrivateKey ?? process.env[`${envPrefix}_SOURCE_PRIVATE_KEY`];
   }
 
   return data.routes;
@@ -224,12 +232,13 @@ export const validateConfig = (config: BridgeConfig): void => {
     throw new Error("All gRPC ports must be unique");
   }
 
-  // Validate UTXORPC endpoints
-  if (!config.networks.source.utxorpcEndpoint.startsWith('http')) {
+  // Validate UTXORPC endpoints only when the legacy "first route" is Cardano.
+  // EVM routes have no utxorpcEndpoint, so skip this check for them.
+  const firstRoute = config.routes[0];
+  if (firstRoute?.source.chainType === "cardano" && !config.networks.source.utxorpcEndpoint.startsWith('http')) {
     throw new Error("Source UTXORPC endpoint must be a valid HTTP(S) URL");
   }
-
-  if (!config.networks.destination.utxorpcEndpoint.startsWith('http')) {
+  if (firstRoute?.destination.chainType === "cardano" && !config.networks.destination.utxorpcEndpoint.startsWith('http')) {
     throw new Error("Destination UTXORPC endpoint must be a valid HTTP(S) URL");
   }
 
