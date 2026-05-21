@@ -3,6 +3,7 @@ import { cors } from "@elysiajs/cors";
 import { Effect } from "effect";
 import type { BridgeConfig, DepositEvent, MirrorStatus } from "../common/types.js";
 import { testWalletRoutes } from "./test-wallet.js";
+import { testEvmWalletRoutes } from "./test-evm-wallet.js";
 import type {
   ApiAssetConfig,
   ApiBridgeConfig,
@@ -256,6 +257,7 @@ export function createApiServer(
     // ── Test wallet routes (dev/test only — includes balance query via Koios) ─
 
     .use(testWalletRoutes())
+    .use(testEvmWalletRoutes())
 
     .listen(port);
 
