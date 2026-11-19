@@ -2,6 +2,12 @@
 
 Vista Bridge is the Agrow Labs monorepo for the bridge frontend, Cardano smart contracts, off-chain services, and protocol documentation originally developed in the Vista Foundation repositories.
 
+## License
+
+Agrow Labs publishes Vista Bridge under **Creative Commons Attribution 4.0 International (CC BY 4.0)**, except where a component or file includes its own terms. When reusing material under CC BY 4.0, credit the creators, link to the license, and indicate any changes. [License summary](https://creativecommons.org/licenses/by/4.0/) · [Full license](LICENSE)
+
+The imported [smart contracts](smart-contracts/LICENSE), [design documents](design-docs/LICENSE), and [documentation](documentation/LICENSE) carry Apache 2.0 license files. The [integrated bridge README](bridge/README.md#license) identifies CC BY-SA 4.0. Both workers include CC BY 4.0 license text, while their imported package manifests identify CC BY-SA 4.0. See the [integrated worker](bridge/offchain/) and [standalone worker](bridge-offchain/) for those notices.
+
 ## Follow a transfer
 
 The [bridge frontend](bridge/frontend/) talks to the [HTTP API](bridge/offchain/src/api/) to list routes, register deposits, and show transfer status. Each configured route runs an indexer on its source chain and a mirror on its destination chain. The indexer detects deposits, the shared relayer records their state in SQLite, and the mirror builds and submits the corresponding destination transaction.
