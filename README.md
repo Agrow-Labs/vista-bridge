@@ -1,6 +1,6 @@
-# Vista Foundation
+# Vista Bridge
 
-This monorepo brings together the Vista bridge application, the off-chain services that process transfers, and the Foundation’s Cardano smart contracts and protocol documentation.
+Vista Bridge is the Agrow Labs monorepo for the bridge frontend, Cardano smart contracts, off-chain services, and protocol documentation originally developed in the Vista Foundation repositories.
 
 ## Follow a transfer
 
