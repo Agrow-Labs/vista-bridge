@@ -1,0 +1,91 @@
+{
+  "_comment": "Example bidirectional ETH (Sepolia) <-> Cardano (Preprod) bridge config. Mirrors 1 wei <-> 1 vETH (a Cardano native token). Activate with BRIDGE_ROUTES_FILE=config/routes.eth-example.json. Replace PLACEHOLDER units with the real policyId+assetNameHex after the first mint (the policyId is the hash of ForgeScript.withOneSignature(destinationWalletAddr)).",
+  "routes": [
+    {
+      "id": "eth-sepolia-to-preprod",
+      "source": {
+        "chainId": "eth-sepolia",
+        "chainType": "evm",
+        "name": "sepolia",
+        "evmChainId": 11155111,
+        "evmConfirmations": 3,
+        "addresses": ["0x68B49df3CE8Bc9B77110c2C7eb15D141cee67055"]
+      },
+      "destination": {
+        "chainId": "cardano-preprod",
+        "chainType": "cardano",
+        "name": "preproduction",
+        "utxorpcEndpoint": "https://cardano-preprod.utxorpc-m1.demeter.run",
+        "lucidProvider": "https://preprod.koios.rest/api/v1",
+        "lucidNetwork": "Preprod",
+        "addresses": ["addr_test1qpnueplse6f4d55eumh7f3tzp3wx882xk7qs6ydxtynrfsw89vzfjf0v4yca056el40n7pr568rdls6lp6eu0dwek9nqku88yp"]
+      },
+      "bridge": {
+        "allowedAssets": ["ETH"],
+        "minDepositAmount": "1000000000000000",
+        "maxTransferAmount": "10000000000000000000",
+        "feeAmount": "100000000000000",
+        "assetConfigs": {
+          "ETH": {
+            "sourceUnit": "",
+            "destinationUnit": "18d477cee2bee00475729bcf7da5ca456d07207d192c6cf11ff8fc7576455448",
+            "destinationAction": "mint",
+            "mintScriptType": "sig",
+            "minDepositAmount": "1000000000000000",
+            "maxTransferAmount": "10000000000000000000",
+            "feeLovelace": "100000000000000",
+            "decimals": 18
+          }
+        }
+      },
+      "security": {
+        "requiredConfirmations": 3,
+        "retryAttempts": 5,
+        "retryDelayMs": 5000
+      }
+    },
+    {
+      "id": "preprod-to-eth-sepolia",
+      "source": {
+        "chainId": "cardano-preprod",
+        "chainType": "cardano",
+        "name": "preproduction",
+        "utxorpcEndpoint": "https://cardano-preprod.utxorpc-m1.demeter.run",
+        "lucidProvider": "https://preprod.koios.rest/api/v1",
+        "lucidNetwork": "Preprod",
+        "addresses": ["addr_test1qpnueplse6f4d55eumh7f3tzp3wx882xk7qs6ydxtynrfsw89vzfjf0v4yca056el40n7pr568rdls6lp6eu0dwek9nqku88yp"]
+      },
+      "destination": {
+        "chainId": "eth-sepolia",
+        "chainType": "evm",
+        "name": "sepolia",
+        "evmChainId": 11155111,
+        "addresses": ["0x25f11E5daF0eed7aED446EdE322Ab7A8647E0827"]
+      },
+      "bridge": {
+        "allowedAssets": ["ETH"],
+        "minDepositAmount": "1000000000000000",
+        "maxTransferAmount": "10000000000000000000",
+        "feeAmount": "100000000000000",
+        "assetConfigs": {
+          "ETH": {
+            "sourceUnit": "18d477cee2bee00475729bcf7da5ca456d07207d192c6cf11ff8fc7576455448",
+            "destinationUnit": "",
+            "sourceAction": "burn",
+            "destinationAction": "send",
+            "mintScriptType": "sig",
+            "minDepositAmount": "1000000000000000",
+            "maxTransferAmount": "10000000000000000000",
+            "feeLovelace": "100000000000000",
+            "decimals": 18
+          }
+        }
+      },
+      "security": {
+        "requiredConfirmations": 5,
+        "retryAttempts": 5,
+        "retryDelayMs": 5000
+      }
+    }
+  ]
+}
